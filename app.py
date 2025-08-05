@@ -24,7 +24,7 @@ if not st.session_state.authenticated:
     if st.button("Iniciar sesión"):
         if user == "adm" and password == "adm":
             st.session_state.authenticated = True
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("Credenciales incorrectas")
     st.stop()
