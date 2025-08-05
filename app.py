@@ -3,50 +3,29 @@ import pandas as pd
 import gspread
 import json
 import plotly.express as px
-import requests
+import openai
 from google.oauth2.service_account import Credentials
-import io
 
-# Configuración inicial
+# Config inicial
 st.set_page_config(page_title="Controller Financiero IA", layout="wide")
-st.title("📊 Controller Financiero Inteligente con OpenRouter")
+st.title("📊 Controller Financiero con OpenAI (GPT-3.5)")
 
-# Cargar credenciales
-creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+# Cargar credenciales de Google Sheets
+google_creds = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
 scope = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+creds = Credentials.from_service_account_info(google_creds, scopes=scope)
 gc = gspread.authorize(creds)
 
-# Sesión para historial
+# API Key de OpenAI
+openai.api_key = st.secrets["OPENAI_API_KEY"]
+
+# Historial de conversación
 if "historial" not in st.session_state:
     st.session_state["historial"] = []
 
-# Función para consultar modelo vía OpenRouter
-def consultar_openrouter(prompt):
-    api_key = st.secrets["OPENROUTER_API_KEY"]
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "model": "mistral",
-        "messages": [
-            {"role": "system", "content": "Eres un controller financiero experto en análisis."},
-            {"role": "user", "content": prompt}
-        ]
-    }
-    try:
-        response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data)
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        st.error(f"⚠️ Error al consultar OpenRouter: {e}")
-        return None
-
-# Carga de datos
+# Carga de planilla
 st.subheader("1. Cargar Planilla Financiera")
 opcion = st.radio("¿Desde dónde quieres cargar tus datos?", ["Excel", "Google Sheets"])
-
 df = None
 hojas = []
 
@@ -70,6 +49,19 @@ elif opcion == "Google Sheets":
         except Exception as e:
             st.error(f"No se pudo cargar: {e}")
 
+# Función para consultar OpenAI GPT-3.5
+def consultar_openai(pregunta, df):
+    csv = df.to_csv(index=False)
+    prompt = f"Eres un experto controller financiero. Analiza la siguiente tabla y responde profesionalmente: {pregunta}\n\nDatos:\n{csv}"
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"⚠️ Error al consultar OpenAI: {e}"
+
 if df is not None and not df.empty:
     st.success("✅ Datos cargados correctamente")
     st.dataframe(df.head())
@@ -80,46 +72,34 @@ if df is not None and not df.empty:
     with col1:
         if st.button("📈 Analizar Rentabilidad"):
             pregunta = "¿Cuál es la rentabilidad general de la empresa?"
-            csv = df.to_csv(index=False)
-            prompt = f"{pregunta}\n\nDatos:\n{csv}"
-            respuesta = consultar_openrouter(prompt)
-            if respuesta:
-                st.markdown("### 💬 Respuesta")
-                st.write(respuesta)
-                st.session_state["historial"].append((pregunta, respuesta))
+            respuesta = consultar_openai(pregunta, df)
+            st.markdown("### 💬 Respuesta")
+            st.write(respuesta)
+            st.session_state["historial"].append((pregunta, respuesta))
 
     with col2:
         if st.button("📉 Ver meses con pérdida"):
-            pregunta = "¿Cuáles son los meses con pérdida?"
-            csv = df.to_csv(index=False)
-            prompt = f"{pregunta}\n\nDatos:\n{csv}"
-            respuesta = consultar_openrouter(prompt)
-            if respuesta:
-                st.markdown("### 💬 Respuesta")
-                st.write(respuesta)
-                st.session_state["historial"].append((pregunta, respuesta))
+            pregunta = "¿Cuáles son los meses en que se registraron pérdidas?"
+            respuesta = consultar_openai(pregunta, df)
+            st.markdown("### 💬 Respuesta")
+            st.write(respuesta)
+            st.session_state["historial"].append((pregunta, respuesta))
 
     with col3:
         if st.button("💡 Recomendaciones de mejora"):
             pregunta = "¿Qué recomendaciones puedes dar para mejorar la rentabilidad o reducir costos?"
-            csv = df.to_csv(index=False)
-            prompt = f"{pregunta}\n\nDatos:\n{csv}"
-            respuesta = consultar_openrouter(prompt)
-            if respuesta:
-                st.markdown("### 💬 Respuesta")
-                st.write(respuesta)
-                st.session_state["historial"].append((pregunta, respuesta))
+            respuesta = consultar_openai(pregunta, df)
+            st.markdown("### 💬 Respuesta")
+            st.write(respuesta)
+            st.session_state["historial"].append((pregunta, respuesta))
 
     st.subheader("3. Pregunta libre")
     pregunta = st.text_input("Haz una pregunta financiera basada en tus datos")
     if pregunta:
-        csv = df.to_csv(index=False)
-        prompt = f"{pregunta}\n\nDatos:\n{csv}"
-        respuesta = consultar_openrouter(prompt)
-        if respuesta:
-            st.markdown("### 💬 Respuesta")
-            st.write(respuesta)
-            st.session_state["historial"].append((pregunta, respuesta))
+        respuesta = consultar_openai(pregunta, df)
+        st.markdown("### 💬 Respuesta")
+        st.write(respuesta)
+        st.session_state["historial"].append((pregunta, respuesta))
 
     st.subheader("4. Visualización de Datos")
     columnas_numericas = df.select_dtypes(include=["number"]).columns.tolist()
