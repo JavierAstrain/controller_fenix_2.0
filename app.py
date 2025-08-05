@@ -4,35 +4,38 @@ import gspread
 import json
 import plotly.express as px
 from google.oauth2.service_account import Credentials
-from openai import OpenAI
+import openai
 import io
-
-# --- LOGIN SIMPLIFICADO ---
-if "logueado" not in st.session_state:
-    st.session_state["logueado"] = False
-
-if not st.session_state["logueado"]:
-    st.set_page_config(page_title="Login | Controller Financiero IA", layout="centered")
-    st.title("🔐 Iniciar sesión")
-    user = st.text_input("Usuario")
-    pwd = st.text_input("Contraseña", type="password")
-    if user == "adm" and pwd == "adm":
-        st.session_state["logueado"] = True
-        st.experimental_rerun()
-    else:
-        st.stop()
 
 # Configuración inicial
 st.set_page_config(page_title="Controller Financiero IA", layout="wide")
+
+# Autenticación simple
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+
+if not st.session_state["autenticado"]:
+    st.title("🔐 Iniciar sesión")
+    usuario = st.text_input("Usuario")
+    contraseña = st.text_input("Contraseña", type="password")
+    if st.button("Iniciar sesión"):
+        if usuario == "adm" and contraseña == "adm":
+            st.session_state["autenticado"] = True
+            st.success("Inicio de sesión exitoso")
+            st.rerun()
+        else:
+            st.error("Credenciales incorrectas")
+    st.stop()
+
 st.title("📊 Controller Financiero IA")
 
 # Cargar credenciales
-google_creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
 scope = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-google_creds = Credentials.from_service_account_info(google_creds_dict, scopes=scope)
-gc = gspread.authorize(google_creds)
+creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+gc = gspread.authorize(creds)
 
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 # Sesión para historial
 if "historial" not in st.session_state:
@@ -74,17 +77,14 @@ if df is not None and not df.empty:
     col1, col2, col3 = st.columns(3)
 
     def consultar_openai(pregunta, df):
-        csv = df.to_csv(index=False)
-        prompt = f"Eres un controller financiero. Analiza la siguiente tabla y responde profesionalmente: {pregunta}\n\nDatos:\n{csv}"
         try:
-            response = client.chat.completions.create(
+            csv = df.to_csv(index=False)
+            prompt = f"Eres un controller financiero. Analiza la siguiente tabla y responde profesionalmente: {pregunta}\n\nDatos:\n{csv}"
+            respuesta = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "Eres un experto financiero."},
-                    {"role": "user", "content": prompt}
-                ]
+                messages=[{"role": "user", "content": prompt}]
             )
-            return response.choices[0].message.content
+            return respuesta.choices[0].message.content
         except Exception as e:
             return f"⚠️ Error al consultar OpenAI: {e}"
 
