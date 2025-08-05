@@ -7,28 +7,28 @@ import plotly.express as px
 from google.oauth2.service_account import Credentials
 import openai
 
-# ------------------- CONFIGURACIÓN INICIAL -------------------
+# Autenticación simple
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+
+if not st.session_state["autenticado"]:
+    st.image("https://img.icons8.com/fluency/96/lock.png", width=60)
+    st.title("Iniciar sesión")
+    usuario = st.text_input("Usuario")
+    contraseña = st.text_input("Contraseña", type="password")
+    if st.button("Ingresar"):
+        if usuario == "adm" and contraseña == "adm":
+            st.session_state["autenticado"] = True
+            st.rerun()
+        else:
+            st.error("Credenciales incorrectas")
+    st.stop()
+
+# Configuración inicial
 st.set_page_config(page_title="Controller Financiero IA", layout="wide")
 st.title("📊 Controller Financiero IA")
 
-# ------------------- LOGIN SIMPLE -------------------
-if "logueado" not in st.session_state:
-    st.session_state["logueado"] = False
-
-if not st.session_state["logueado"]:
-    st.image("https://cdn-icons-png.flaticon.com/512/456/456212.png", width=50)
-    st.header("Iniciar sesión")
-    usuario = st.text_input("Usuario")
-    password = st.text_input("Contraseña", type="password")
-    if st.button("🔐 Entrar"):
-        if usuario == "adm" and password == "adm":
-            st.session_state["logueado"] = True
-            st.rerun()
-        else:
-            st.error("Usuario o contraseña incorrectos.")
-    st.stop()
-
-# ------------------- CARGA DE CREDENCIALES -------------------
+# Cargar credenciales
 creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
 scope = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
@@ -36,25 +36,11 @@ gc = gspread.authorize(creds)
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# ------------------- FUNCIÓN OPENAI -------------------
-def consultar_openai(mensaje_usuario):
-    try:
-        response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Eres un controller financiero experto."},
-                {"role": "user", "content": mensaje_usuario}
-            ]
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"⚠️ Error al consultar OpenAI: {e}"
-
-# ------------------- SESIÓN PARA HISTORIAL -------------------
+# Historial
 if "historial" not in st.session_state:
     st.session_state["historial"] = []
 
-# ------------------- CARGA DE DATOS -------------------
+# Carga de datos
 st.subheader("1. Cargar Planilla Financiera")
 opcion = st.radio("¿Desde dónde quieres cargar tus datos?", ["Excel", "Google Sheets"])
 
@@ -81,7 +67,6 @@ elif opcion == "Google Sheets":
         except Exception as e:
             st.error(f"No se pudo cargar: {e}")
 
-# ------------------- FUNCIONALIDAD SI HAY DATOS -------------------
 if df is not None and not df.empty:
     st.success("✅ Datos cargados correctamente")
     st.dataframe(df.head())
@@ -89,14 +74,24 @@ if df is not None and not df.empty:
     st.subheader("2. Acciones Inteligentes")
     col1, col2, col3 = st.columns(3)
 
+    def consultar_openai(pregunta, data):
+        try:
+            prompt = f"Analiza esta tabla financiera y responde: {pregunta}\n\n{data}"
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "Eres un controller financiero."},
+                    {"role": "user", "content": prompt},
+                ]
+            )
+            return response["choices"][0]["message"]["content"]
+        except Exception as e:
+            return f"⚠️ Error al consultar OpenAI: {e}"
+
     with col1:
         if st.button("📈 Analizar Rentabilidad"):
             pregunta = "¿Cuál es la rentabilidad general de la empresa?"
-            csv = df.to_csv(index=False)
-            prompt = f"Analiza esta tabla financiera y responde: {pregunta}
-
-{csv}"
-            respuesta = consultar_openai(prompt)
+            respuesta = consultar_openai(pregunta, df.to_csv(index=False))
             st.markdown("### 💬 Respuesta")
             st.write(respuesta)
             st.session_state["historial"].append((pregunta, respuesta))
@@ -104,39 +99,29 @@ if df is not None and not df.empty:
     with col2:
         if st.button("📉 Ver meses con pérdida"):
             pregunta = "¿Cuáles son los meses con pérdida?"
-            csv = df.to_csv(index=False)
-            prompt = f"Analiza esta tabla financiera y responde: {pregunta}
-
-{csv}"
-            respuesta = consultar_openai(prompt)
+            respuesta = consultar_openai(pregunta, df.to_csv(index=False))
             st.markdown("### 💬 Respuesta")
             st.write(respuesta)
             st.session_state["historial"].append((pregunta, respuesta))
 
     with col3:
         if st.button("💡 Recomendaciones de mejora"):
-            pregunta = "¿Qué recomendaciones financieras darías para mejorar la rentabilidad?"
-            csv = df.to_csv(index=False)
-            prompt = f"Analiza esta tabla financiera y responde: {pregunta}
-
-{csv}"
-            respuesta = consultar_openai(prompt)
+            pregunta = "¿Qué recomendaciones das para mejorar la rentabilidad?"
+            respuesta = consultar_openai(pregunta, df.to_csv(index=False))
             st.markdown("### 💬 Respuesta")
             st.write(respuesta)
             st.session_state["historial"].append((pregunta, respuesta))
 
+    # Pregunta libre
     st.subheader("3. Pregunta libre")
-    pregunta = st.text_input("Haz una pregunta financiera basada en tus datos")
-    if pregunta:
-        csv = df.to_csv(index=False)
-        prompt = f"Analiza esta tabla y responde: {pregunta}"
-
-{csv}"
-        respuesta = consultar_openai(prompt)
+    pregunta_libre = st.text_input("Haz una pregunta financiera basada en tus datos")
+    if pregunta_libre:
+        respuesta = consultar_openai(pregunta_libre, df.to_csv(index=False))
         st.markdown("### 💬 Respuesta")
         st.write(respuesta)
-        st.session_state["historial"].append((pregunta, respuesta))
+        st.session_state["historial"].append((pregunta_libre, respuesta))
 
+    # Gráfico automático
     st.subheader("4. Visualización de Datos")
     columnas_numericas = df.select_dtypes(include=["number"]).columns.tolist()
     columnas_categoria = df.select_dtypes(exclude=["number"]).columns.tolist()
@@ -155,6 +140,7 @@ if df is not None and not df.empty:
 
         st.plotly_chart(fig)
 
+    # Exportar historial
     st.subheader("5. Historial de conversación")
     if st.button("💾 Exportar historial en CSV"):
         if st.session_state["historial"]:
@@ -163,3 +149,4 @@ if df is not None and not df.empty:
             st.download_button("📥 Descargar historial", data=csv_bytes, file_name="historial_controller.csv", mime="text/csv")
         else:
             st.info("Aún no hay historial para exportar.")
+
