@@ -1,122 +1,104 @@
-
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import json
-import openai
+from openai import OpenAI
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-from io import BytesIO
-import tempfile
+from google.oauth2.service_account import Credentials
+import matplotlib.pyplot as plt
+import io
+import base64
 
-# --- CONFIGURACIÓN ---
+# --- Autenticación desde secrets ---
+USER = st.secrets["USER"]
+PASSWORD = st.secrets["PASSWORD"]
+GOOGLE_CREDENTIALS = st.secrets["GOOGLE_CREDENTIALS"]
+OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+
+# --- Cliente OpenAI ---
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+# --- Inicio de sesión ---
 st.set_page_config(page_title="Controller Financiero IA", page_icon="📊")
 st.title("📊 Controller Financiero IA")
 
-# --- LOGIN SIMPLE ---
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-
-if not st.session_state.authenticated:
-    st.subheader("🔐 Iniciar sesión")
-    user = st.text_input("Usuario")
+with st.expander("🔐 Iniciar sesión", expanded=True):
+    username = st.text_input("Usuario")
     password = st.text_input("Contraseña", type="password")
     if st.button("Iniciar sesión"):
-        if user == "adm" and password == "adm":
-            st.session_state.authenticated = True
-            st.rerun()
+        if username == USER and password == PASSWORD:
+            st.session_state["authenticated"] = True
         else:
             st.error("Credenciales incorrectas")
+
+if not st.session_state.get("authenticated"):
     st.stop()
 
-# --- CARGA DE ARCHIVO ---
-st.subheader("📁 Subir archivo financiero")
+# --- Carga de datos ---
+archivo = st.file_uploader("Sube un archivo Excel o conecta Google Sheets", type=["xlsx"])
+df_dict = {}
 
-dataframes = {}
-uploaded_file = st.file_uploader("Sube un archivo Excel", type=["xlsx"])
-gsheet_url = st.text_input("O ingresa una URL de Google Sheets (con acceso de lectura público)")
-
-if uploaded_file:
-    excel = pd.ExcelFile(uploaded_file)
-    for sheet in excel.sheet_names:
-        dataframes[sheet] = excel.parse(sheet)
-    st.success(f"📄 {len(dataframes)} hojas cargadas desde Excel.")
-elif gsheet_url:
-    try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name("gspread_key.json", scope)
-        client = gspread.authorize(creds)
-        sheet = client.open_by_url(gsheet_url)
-        for worksheet in sheet.worksheets():
-            df = pd.DataFrame(worksheet.get_all_records())
-            dataframes[worksheet.title] = df
-        st.success(f"📄 {len(dataframes)} hojas cargadas desde Google Sheets.")
-    except Exception as e:
-        st.error(f"❌ Error al leer Google Sheets: {e}")
-        st.stop()
+if archivo:
+    xls = pd.ExcelFile(archivo)
+    for hoja in xls.sheet_names:
+        df_dict[hoja] = xls.parse(hoja)
+    st.success("Archivo Excel cargado con éxito")
 else:
-    st.info("Sube un archivo o ingresa un link para comenzar.")
+    st.info("O conecta una planilla de Google Sheets con ID")
+    sheet_id = st.text_input("ID de Google Sheet")
+    if sheet_id:
+        scope = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+        creds = Credentials.from_service_account_info(GOOGLE_CREDENTIALS, scopes=scope)
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(sheet_id)
+        for hoja in sh.worksheets():
+            df = pd.DataFrame(hoja.get_all_records())
+            df_dict[hoja.title] = df
+        st.success("Planilla Google cargada con éxito")
+
+if not df_dict:
     st.stop()
 
-# --- CONFIGURAR OPENAI ---
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+# --- Mostrar hojas disponibles ---
+st.subheader("📄 Hojas cargadas")
+for nombre, df in df_dict.items():
+    st.markdown(f"### {nombre}")
+    st.dataframe(df.head())
 
-# --- CONSULTAS ---
-st.subheader("💬 Consultar a IA financiera")
-pregunta = st.text_area("Escribe tu consulta financiera:")
+# --- Consulta del usuario ---
+st.subheader("🤖 Consulta al Controller Financiero IA")
+pregunta = st.text_area("Escribe tu consulta sobre la información financiera")
 
-if st.button("Responder"):
-    with st.spinner("Pensando como controller financiero..."):
-        # Preparamos los datos
-        full_text = ""
-        for name, df in dataframes.items():
-            full_text += f"--- Hoja: {name} ---\n"
-            full_text += df.head(20).to_csv(index=False) + "\n"
+if st.button("Responder") and pregunta:
+    # Preparar contenido del libro completo
+    contexto = ""
+    for nombre, df in df_dict.items():
+        contexto += f"\n--- HOJA: {nombre} ---\n"
+        contexto += df.head(20).to_string(index=False)
 
-        prompt = f"""
-Actúa como un controller financiero experto y profesional en gestión. Tu cliente es un taller de desabolladura y pintura de vehículos livianos y pesados. Recibirás una base de datos en formato tabla, proveniente de Excel o Google Sheets, y deberás:
+    prompt = [
+        {"role": "system", "content": "Eres un controller financiero experto en gestión de talleres de desabolladura y pintura automotriz. Debes responder con análisis reales, correctos, y puedes usar gráficos si es necesario. Entrega recomendaciones profesionales y ordenadas."},
+        {"role": "user", "content": f"Datos del archivo:\n{contexto}\n\nPregunta: {pregunta}"}
+    ]
 
-1. Leer, comprender y analizar los datos de todas las hojas.
-2. Responder de forma clara, profesional y con cálculos reales.
-3. Sugerir gráficos automáticamente cuando ayuden a visualizar mejor los datos (indica tipo y variables).
-4. Generar insights, comparaciones y recomendaciones como experto.
-5. Realizar proyecciones si se solicita.
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=prompt,
+            temperature=0.2
+        )
+        respuesta = response.choices[0].message.content
+        st.markdown("### Respuesta")
+        st.markdown(respuesta)
 
-Datos disponibles:
-{full_text}
+        # Gráfico automático según algunas palabras clave
+        if "gráfico" in respuesta.lower():
+            for nombre, df in df_dict.items():
+                if "tipo de cliente" in df.columns and "facturación" in df.columns:
+                    fig, ax = plt.subplots()
+                    datos = df.groupby("tipo de cliente")["facturación"].sum()
+                    datos.plot(kind="pie", autopct='%1.1f%%', ax=ax)
+                    ax.set_ylabel("")
+                    st.pyplot(fig)
+                    break
 
-Pregunta del usuario:
-{pregunta}
-
-Responde en español con el formato más útil posible para el cliente.
-"""
-
-        try:
-            response = openai.ChatCompletion.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2
-            )
-            respuesta = response["choices"][0]["message"]["content"]
-            st.markdown("### 📢 Respuesta")
-            st.markdown(respuesta)
-
-            # Intentar generar gráfico si la IA lo sugiere
-            if "gráfico de torta" in respuesta.lower() or "gráfico circular" in respuesta.lower():
-                for sheet_name, df in dataframes.items():
-                    if "cliente" in df.columns and "monto" in df.columns:
-                        fig, ax = plt.subplots()
-                        df.groupby("cliente")["monto"].sum().plot(kind="pie", autopct='%1.1f%%', ax=ax)
-                        ax.set_ylabel("")
-                        st.pyplot(fig)
-                        break
-            elif "gráfico de barras" in respuesta.lower():
-                for sheet_name, df in dataframes.items():
-                    if "cliente" in df.columns and "monto" in df.columns:
-                        fig, ax = plt.subplots()
-                        df.groupby("cliente")["monto"].sum().plot(kind="bar", ax=ax)
-                        st.pyplot(fig)
-                        break
-
-        except Exception as e:
-            st.error(f"❌ Error al consultar OpenAI: {e}")
+    except Exception as e:
+        st.error(f"Error al consultar OpenAI: {e}")
