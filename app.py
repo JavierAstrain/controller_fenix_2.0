@@ -129,7 +129,7 @@ if df is not None and not df.empty:
     pregunta = st.text_input("Haz una pregunta financiera basada en tus datos")
     if pregunta:
         csv = df.to_csv(index=False)
-        prompt = f"Analiza esta tabla y responde: {pregunta}
+        prompt = f"Analiza esta tabla y responde: {pregunta}"
 
 {csv}"
         respuesta = consultar_openai(prompt)
