@@ -11,13 +11,15 @@ from google.oauth2.service_account import Credentials
 st.set_page_config(page_title="Controller Financiero IA", layout="wide")
 st.title("📊 Controller Financiero Inteligente con DeepSeek (via Together.ai)")
 
-# Cargar credenciales
+# Cargar credenciales de Google Sheets
 creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
 scope = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
 gc = gspread.authorize(creds)
 
-TOGETHER_API_KEY = st.secrets["TOGETHER_API_KEY"]
+# Leer clave API de Together
+TOGETHER_API_KEY = st.secrets.get("TOGETHER_API_KEY", "")
+st.write("🔑 Clave detectada:", TOGETHER_API_KEY[:10] + "...")  # Mostrar parte de la clave
 
 # Sesión para historial
 if "historial" not in st.session_state:
@@ -37,6 +39,7 @@ def preguntar_deepseek(prompt):
     try:
         response = requests.post("https://api.together.xyz/v1/chat/completions", headers=headers, json=payload)
         resultado = response.json()
+        st.write("🔍 Respuesta completa de la API:", resultado)  # Mostrar respuesta completa
         if "choices" in resultado:
             return resultado["choices"][0]["message"]["content"]
         else:
