@@ -1,7 +1,7 @@
+openai
 streamlit
 pandas
 gspread
-openpyxl
-plotly
+oauth2client
 google-auth
-google-generativeai
+plotly
