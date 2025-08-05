@@ -1,169 +1,123 @@
 import streamlit as st
 import pandas as pd
-import gspread
-import json
-import plotly.express as px
-from google.oauth2.service_account import Credentials
 import openai
-import io
+import matplotlib.pyplot as plt
+import seaborn as sns
+import json
+from io import BytesIO
+from google.oauth2.service_account import Credentials
+import gspread
 
 # Configuración inicial
-# ------------------- CONFIGURACIÓN INICIAL -------------------
 st.set_page_config(page_title="Controller Financiero IA", layout="wide")
 st.title("📊 Controller Financiero IA")
 
-# Autenticación simple
-if "autenticado" not in st.session_state:
-    st.session_state["autenticado"] = False
-# ------------------- LOGIN SIMPLE -------------------
-if "logueado" not in st.session_state:
-    st.session_state["logueado"] = False
+# --- LOGIN SIMPLE ---
+if "auth" not in st.session_state:
+    st.session_state.auth = False
 
-if not st.session_state["autenticado"]:
-    st.title("🔐 Iniciar sesión")
-if not st.session_state["logueado"]:
-    st.image("https://cdn-icons-png.flaticon.com/512/456/456212.png", width=50)
-    st.header("Iniciar sesión")
-    usuario = st.text_input("Usuario")
-    contraseña = st.text_input("Contraseña", type="password")
-    if st.button("Iniciar sesión"):
-        if usuario == "adm" and contraseña == "adm":
-            st.session_state["autenticado"] = True
-            st.success("Inicio de sesión exitoso")
+if not st.session_state.auth:
+    st.subheader("🔐 Iniciar sesión")
+    user = st.text_input("Usuario")
     password = st.text_input("Contraseña", type="password")
-    if st.button("🔐 Entrar"):
-        if usuario == "adm" and password == "adm":
-            st.session_state["logueado"] = True
+    if st.button("Iniciar sesión"):
+        if user == "adm" and password == "adm":
+            st.session_state.auth = True
             st.rerun()
         else:
             st.error("Credenciales incorrectas")
-            st.error("Usuario o contraseña incorrectos.")
     st.stop()
 
-st.title("📊 Controller Financiero IA")
-
-# Cargar credenciales
-# ------------------- CARGA DE CREDENCIALES -------------------
-creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-scope = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-gc = gspread.authorize(creds)
-
+# --- API KEY ---
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# Sesión para historial
-# ------------------- FUNCIÓN OPENAI -------------------
-def consultar_openai(mensaje_usuario):
-    try:
-        response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Eres un controller financiero experto."},
-                {"role": "user", "content": mensaje_usuario}
-            ]
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"⚠️ Error al consultar OpenAI: {e}"
+# --- CARGAR DATOS ---
+df = None
 
-# ------------------- SESIÓN PARA HISTORIAL -------------------
-if "historial" not in st.session_state:
-    st.session_state["historial"] = []
+st.subheader("1. Cargar datos financieros")
+opcion = st.radio("Selecciona fuente de datos:", ["Subir Excel", "Google Sheets"])
 
-# Carga de datos
-# ------------------- CARGA DE DATOS -------------------
-st.subheader("1. Cargar Planilla Financiera")
-opcion = st.radio("¿Desde dónde quieres cargar tus datos?", ["Excel", "Google Sheets"])
+if opcion == "Subir Excel":
+    archivo = st.file_uploader("Sube tu archivo Excel", type=[".xlsx", ".xls"])
+    if archivo:
+        df = pd.read_excel(archivo, sheet_name=None)
 
-@@ -68,60 +81,62 @@
-        except Exception as e:
-            st.error(f"No se pudo cargar: {e}")
-
-# ------------------- FUNCIONALIDAD SI HAY DATOS -------------------
-if df is not None and not df.empty:
-    st.success("✅ Datos cargados correctamente")
-    st.dataframe(df.head())
-
-    # Botones inteligentes
-    st.subheader("2. Acciones Inteligentes")
-    col1, col2, col3 = st.columns(3)
-
-    def consultar_openai(pregunta, df):
+elif opcion == "Google Sheets":
+    gs_url = st.text_input("Pega el enlace para compartir de Google Sheets")
+    if gs_url:
         try:
-            csv = df.to_csv(index=False)
-            prompt = f"Eres un controller financiero. Analiza la siguiente tabla y responde profesionalmente: {pregunta}\n\nDatos:\n{csv}"
-            respuesta = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return respuesta.choices[0].message.content
+            creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+            scope = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+            creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+            client = gspread.authorize(creds)
+            sheet_id = gs_url.split("/d/")[1].split("/")[0]
+            spreadsheet = client.open_by_key(sheet_id)
+            df = {ws.title: pd.DataFrame(ws.get_all_records()) for ws in spreadsheet.worksheets()}
+            st.success("Google Sheets cargado correctamente")
         except Exception as e:
-            return f"⚠️ Error al consultar OpenAI: {e}"
+            st.error(f"Error al leer Google Sheet: {e}")
 
-    with col1:
-        if st.button("📈 Analizar Rentabilidad"):
-            pregunta = "¿Cuál es la rentabilidad general de la empresa?"
-            respuesta = consultar_openai(pregunta, df)
-            csv = df.to_csv(index=False)
-            prompt = f"Analiza esta tabla financiera y responde: {pregunta}
+if not df:
+    st.info("Por favor, carga una planilla para comenzar")
+    st.stop()
 
-{csv}"
-            respuesta = consultar_openai(prompt)
-            st.markdown("### 💬 Respuesta")
-            st.write(respuesta)
-            st.session_state["historial"].append((pregunta, respuesta))
+# --- VISUALIZACION DE HOJAS ---
+st.subheader("2. Vista previa de datos")
+nombre_hoja = st.selectbox("Selecciona la hoja a visualizar", list(df.keys()))
+df_hoja = df[nombre_hoja]
+st.dataframe(df_hoja, use_container_width=True)
 
-    with col2:
-        if st.button("📉 Ver meses con pérdida"):
-            pregunta = "¿Cuáles son los meses en que se registraron pérdidas?"
-            respuesta = consultar_openai(pregunta, df)
-            pregunta = "¿Cuáles son los meses con pérdida?"
-            csv = df.to_csv(index=False)
-            prompt = f"Analiza esta tabla financiera y responde: {pregunta}
+# --- CONSULTAS CON IA ---
+st.subheader("3. Asistente financiero experto")
 
-{csv}"
-            respuesta = consultar_openai(prompt)
-            st.markdown("### 💬 Respuesta")
-            st.write(respuesta)
-            st.session_state["historial"].append((pregunta, respuesta))
+pregunta = st.text_area("Haz tu consulta financiera sobre todo el archivo cargado:")
 
-    with col3:
-        if st.button("💡 Recomendaciones de mejora"):
-            pregunta = "¿Qué recomendaciones puedes dar para mejorar la rentabilidad o reducir costos?"
-            respuesta = consultar_openai(pregunta, df)
-            pregunta = "¿Qué recomendaciones financieras darías para mejorar la rentabilidad?"
-            csv = df.to_csv(index=False)
-            prompt = f"Analiza esta tabla financiera y responde: {pregunta}
+if st.button("💬 Responder con IA") and pregunta:
+    try:
+        contenido = ""
+        for nombre, data in df.items():
+            contenido += f"\n\nSheet: {nombre}\n{data.to_csv(index=False)}"
 
-{csv}"
-            respuesta = consultar_openai(prompt)
-            st.markdown("### 💬 Respuesta")
-            st.write(respuesta)
-            st.session_state["historial"].append((pregunta, respuesta))
+        prompt = (
+            f"Actúa como un controller financiero experto en negocios de desabolladura y pintura automotriz. "
+            f"Analiza la siguiente información contable en CSV de un taller con datos financieros reales. "
+            f"Responde con información verídica, sugerencias de mejora, y recomendaciones para el dueño.\n"
+            f"Datos completos de todas las hojas:\n{contenido}\n\nPregunta del usuario: {pregunta}"
+        )
 
-    # Pregunta libre
-    st.subheader("3. Pregunta libre")
-    pregunta = st.text_input("Haz una pregunta financiera basada en tus datos")
-    if pregunta:
-        respuesta = consultar_openai(pregunta, df)
-        csv = df.to_csv(index=False)
-        prompt = f"Analiza esta tabla y responde: {pregunta}
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
 
-{csv}"
-        respuesta = consultar_openai(prompt)
-        st.markdown("### 💬 Respuesta")
+        respuesta = response["choices"][0]["message"]["content"]
+        st.markdown("#### 📌 Respuesta experta:")
         st.write(respuesta)
-        st.session_state["historial"].append((pregunta, respuesta))
 
-    # Gráfico automático
-    st.subheader("4. Visualización de Datos")
-    columnas_numericas = df.select_dtypes(include=["number"]).columns.tolist()
-    columnas_categoria = df.select_dtypes(exclude=["number"]).columns.tolist()
-@@ -140,7 +155,6 @@ def consultar_openai(pregunta, df):
+    except Exception as e:
+        st.error(f"⚠️ Error al consultar OpenAI: {e}")
 
-        st.plotly_chart(fig)
+# --- GRAFICOS ---
+st.subheader("4. Visualización de datos")
 
-    # Exportar historial
-    st.subheader("5. Historial de conversación")
-    if st.button("💾 Exportar historial en CSV"):
-        if st.session_state["historial"]:
+col1, col2 = st.columns(2)
+with col1:
+    hoja_graf = st.selectbox("Selecciona hoja para gráfico", list(df.keys()), key="graf")
+    col_x = st.selectbox("Eje X", df[hoja_graf].columns)
+    col_y = st.selectbox("Eje Y", df[hoja_graf].columns)
+with col2:
+    tipo_graf = st.selectbox("Tipo de gráfico", ["Barra", "Línea", "Dispersión"])
+
+if st.button("📊 Generar gráfico"):
+    try:
+        plt.figure(figsize=(10, 4))
+        if tipo_graf == "Barra":
+            sns.barplot(x=col_x, y=col_y, data=df[hoja_graf])
+        elif tipo_graf == "Línea":
+            sns.lineplot(x=col_x, y=col_y, data=df[hoja_graf])
+        elif tipo_graf == "Dispersión":
+            sns.scatterplot(x=col_x, y=col_y, data=df[hoja_graf])
+        plt.xticks(rotation=45)
+        st.pyplot(plt)
+    except Exception as e:
+        st.error(f"Error al generar el gráfico: {e}")
