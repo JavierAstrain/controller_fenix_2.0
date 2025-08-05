@@ -91,7 +91,7 @@ with col3:
     if st.button("Responder") and pregunta and data:
         contenido = ""
         for name, df in data.items():
-            contenido += f"Hoja: {name}
+            contenido += f"Hoja: {name}\n"
 {df.head(50).to_string(index=False)}
 "
 
