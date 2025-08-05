@@ -6,7 +6,7 @@ import gspread
 import json
 from google.oauth2.service_account import Credentials
 from openai import OpenAI
-from io import BytesIO
+from io import StringIO
 
 st.set_page_config(layout="wide", page_title="Controller Financiero IA")
 
@@ -44,22 +44,24 @@ def load_gsheet(json_keyfile, sheet_url):
     sheet = client.open_by_url(sheet_url)
     return {ws.title: pd.DataFrame(ws.get_all_records()) for ws in sheet.worksheets()}
 
+def convertir_hojas_a_texto(data):
+    contenido = ""
+    for name, df in data.items():
+        if len(df) > 200:
+            df = df.head(200)
+        csv_str = df.to_csv(index=False)
+        contenido += f"### Hoja: {name}\n{csv_str}\n\n"
+    return contenido
+
 def ask_gpt(prompt):
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.3
+        temperature=0.3,
+        max_tokens=2048
     )
     return response.choices[0].message.content
-
-def generar_grafico(df, columna_categoria, columna_valor, titulo):
-    fig, ax = plt.subplots()
-    df.groupby(columna_categoria)[columna_valor].sum().plot(kind="bar", ax=ax)
-    ax.set_title(titulo)
-    ax.set_ylabel(columna_valor)
-    ax.set_xlabel(columna_categoria)
-    st.pyplot(fig)
 
 # --- CARGA DE DATOS ---
 with col1:
@@ -89,18 +91,14 @@ with col3:
     st.markdown("### 🤖 Consultar con IA")
     pregunta = st.text_area("Haz una pregunta sobre los datos")
     if st.button("Responder") and pregunta and data:
-        contenido = ""
-        for name, df in data.items():
-            contenido += f"Hoja: {name}\n{df.head(50).to_string(index=False)}\n\n"
-
+        contenido = convertir_hojas_a_texto(data)
         prompt = (
-            "Eres un controller financiero experto. Analiza los siguientes datos de un taller "
-            "de desabolladura y pintura de vehículos livianos y pesados:\n\n"
-            f"{contenido}\n"
+            "Eres un controller financiero experto. A continuación tienes los datos financieros de un taller "
+            "de desabolladura y pintura de vehículos livianos y pesados, distribuidos en varias hojas:\n\n"
+            f"{contenido}\n\n"
             f"Pregunta: {pregunta}\n\n"
-            "Responde con análisis detallado, gráfico si es útil, y una tabla si aplica. "
-            "Sé profesional, claro y enfocado en decisiones estratégicas."
+            "Analiza directamente las cifras. Entrega respuestas detalladas, incluye cálculos, análisis, conclusiones "
+            "y recomendaciones. Sé preciso, profesional, y útil para la toma de decisiones reales."
         )
-
         respuesta = ask_gpt(prompt)
         st.markdown(respuesta)
