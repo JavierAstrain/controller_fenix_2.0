@@ -91,20 +91,13 @@ with col3:
     if st.button("Responder") and pregunta and data:
         contenido = ""
         for name, df in data.items():
-            contenido += f"Hoja: {name}\n"
-{df.head(50).to_string(index=False)}
-"
+            contenido += f"Hoja: {name}\n{df.head(50).to_string(index=False)}\n\n"
 
         prompt = (
             "Eres un controller financiero experto. Analiza los siguientes datos de un taller "
-            "de desabolladura y pintura de vehículos:
-"
-            f"{contenido}
-
-"
-            f"Pregunta: {pregunta}
-
-"
+            "de desabolladura y pintura de vehículos livianos y pesados:\n\n"
+            f"{contenido}\n"
+            f"Pregunta: {pregunta}\n\n"
             "Responde con análisis detallado, gráfico si es útil, y una tabla si aplica. "
             "Sé profesional, claro y enfocado en decisiones estratégicas."
         )
