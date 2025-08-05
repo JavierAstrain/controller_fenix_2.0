@@ -1,122 +1,88 @@
-
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import json
 import openai
+import json
+import io
+from google.oauth2 import service_account
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-from io import BytesIO
-import tempfile
+from googleapiclient.discovery import build
 
-# --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Controller Financiero IA", page_icon="📊")
-st.title("📊 Controller Financiero IA")
+st.set_page_config(page_title="Controller Financiero IA", layout="wide")
 
-# --- LOGIN SIMPLE ---
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
+# Login simple
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-if not st.session_state.authenticated:
-    st.subheader("🔐 Iniciar sesión")
-    user = st.text_input("Usuario")
+if not st.session_state.logged_in:
+    st.title("🔒 Controller Financiero IA")
+    st.subheader("Iniciar sesión")
+    username = st.text_input("Usuario")
     password = st.text_input("Contraseña", type="password")
     if st.button("Iniciar sesión"):
-        if user == "adm" and password == "adm":
-            st.session_state.authenticated = True
+        if username == "adm" and password == "adm":
+            st.session_state.logged_in = True
             st.rerun()
         else:
             st.error("Credenciales incorrectas")
     st.stop()
 
-# --- CARGA DE ARCHIVO ---
-st.subheader("📁 Subir archivo financiero")
+st.title("📊 Controller Financiero IA")
 
-dataframes = {}
-uploaded_file = st.file_uploader("Sube un archivo Excel", type=["xlsx"])
-gsheet_url = st.text_input("O ingresa una URL de Google Sheets (con acceso de lectura público)")
+# Subir archivo Excel o conectar Google Sheet
+fuente_datos = st.radio("Fuente de datos:", ["Excel", "Google Sheets"])
+df = None
 
-if uploaded_file:
-    excel = pd.ExcelFile(uploaded_file)
-    for sheet in excel.sheet_names:
-        dataframes[sheet] = excel.parse(sheet)
-    st.success(f"📄 {len(dataframes)} hojas cargadas desde Excel.")
-elif gsheet_url:
-    try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name("gspread_key.json", scope)
-        client = gspread.authorize(creds)
-        sheet = client.open_by_url(gsheet_url)
-        for worksheet in sheet.worksheets():
-            df = pd.DataFrame(worksheet.get_all_records())
-            dataframes[worksheet.title] = df
-        st.success(f"📄 {len(dataframes)} hojas cargadas desde Google Sheets.")
-    except Exception as e:
-        st.error(f"❌ Error al leer Google Sheets: {e}")
-        st.stop()
-else:
-    st.info("Sube un archivo o ingresa un link para comenzar.")
-    st.stop()
-
-# --- CONFIGURAR OPENAI ---
-openai.api_key = st.secrets["OPENAI_API_KEY"]
-
-# --- CONSULTAS ---
-st.subheader("💬 Consultar a IA financiera")
-pregunta = st.text_area("Escribe tu consulta financiera:")
-
-if st.button("Responder"):
-    with st.spinner("Pensando como controller financiero..."):
-        # Preparamos los datos
-        full_text = ""
-        for name, df in dataframes.items():
-            full_text += f"--- Hoja: {name} ---\n"
-            full_text += df.head(20).to_csv(index=False) + "\n"
-
-        prompt = f"""
-Actúa como un controller financiero experto y profesional en gestión. Tu cliente es un taller de desabolladura y pintura de vehículos livianos y pesados. Recibirás una base de datos en formato tabla, proveniente de Excel o Google Sheets, y deberás:
-
-1. Leer, comprender y analizar los datos de todas las hojas.
-2. Responder de forma clara, profesional y con cálculos reales.
-3. Sugerir gráficos automáticamente cuando ayuden a visualizar mejor los datos (indica tipo y variables).
-4. Generar insights, comparaciones y recomendaciones como experto.
-5. Realizar proyecciones si se solicita.
-
-Datos disponibles:
-{full_text}
-
-Pregunta del usuario:
-{pregunta}
-
-Responde en español con el formato más útil posible para el cliente.
-"""
-
+if fuente_datos == "Excel":
+    archivo = st.file_uploader("Sube tu archivo Excel", type=["xlsx"])
+    if archivo:
+        excel = pd.read_excel(archivo, sheet_name=None)
+        st.success("Archivo cargado correctamente.")
+elif fuente_datos == "Google Sheets":
+    url = st.text_input("Pega la URL de tu Google Sheet")
+    if url:
         try:
-            response = openai.ChatCompletion.create(
+            creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+            creds = service_account.Credentials.from_service_account_info(creds_dict)
+            gc = gspread.authorize(creds)
+            sheet_id = url.split("/d/")[1].split("/")[0]
+            sh = gc.open_by_key(sheet_id)
+            excel = {ws.title: pd.DataFrame(ws.get_all_records()) for ws in sh.worksheets()}
+            st.success("Google Sheet conectado correctamente.")
+        except Exception as e:
+            st.error(f"Error al conectar Google Sheets: {e}")
+            st.stop()
+
+# Mostrar hojas
+if 'excel' in locals():
+    hoja = st.selectbox("Selecciona una hoja para visualizar", list(excel.keys()))
+    df = excel[hoja]
+    st.dataframe(df, use_container_width=True)
+
+# Pregunta a la IA
+if df is not None:
+    pregunta = st.text_area("Haz una pregunta sobre los datos cargados:")
+    if st.button("Responder"):
+        try:
+            all_dfs_str = "\n\n".join([f"Hoja: {nombre}\n{contenido.to_string(index=False)}" for nombre, contenido in excel.items()])
+            prompt = f"""
+Actúa como un controller financiero experto en el rubro automotriz de desabolladura y pintura de vehículos pesados y livianos.
+Analiza el siguiente libro financiero (múltiples hojas) y responde con precisión, explicaciones claras, gráficos si es necesario y recomendaciones reales.
+Datos:
+{all_dfs_str}
+Pregunta del usuario: {pregunta}
+"""
+            client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+            response = client.chat.completions.create(
                 model="gpt-4",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2
+                messages=[
+                    {"role": "system", "content": "Eres un controller financiero experto en gestión de talleres automotrices."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
             )
-            respuesta = response["choices"][0]["message"]["content"]
-            st.markdown("### 📢 Respuesta")
+            respuesta = response.choices[0].message.content
+            st.markdown("### 🧠 Respuesta")
             st.markdown(respuesta)
-
-            # Intentar generar gráfico si la IA lo sugiere
-            if "gráfico de torta" in respuesta.lower() or "gráfico circular" in respuesta.lower():
-                for sheet_name, df in dataframes.items():
-                    if "cliente" in df.columns and "monto" in df.columns:
-                        fig, ax = plt.subplots()
-                        df.groupby("cliente")["monto"].sum().plot(kind="pie", autopct='%1.1f%%', ax=ax)
-                        ax.set_ylabel("")
-                        st.pyplot(fig)
-                        break
-            elif "gráfico de barras" in respuesta.lower():
-                for sheet_name, df in dataframes.items():
-                    if "cliente" in df.columns and "monto" in df.columns:
-                        fig, ax = plt.subplots()
-                        df.groupby("cliente")["monto"].sum().plot(kind="bar", ax=ax)
-                        st.pyplot(fig)
-                        break
-
         except Exception as e:
             st.error(f"❌ Error al consultar OpenAI: {e}")
