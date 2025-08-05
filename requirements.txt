@@ -5,3 +5,4 @@ gspread
 oauth2client
 google-auth
 plotly
+openai==0.28
