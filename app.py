@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 import gspread
 import json
 from io import BytesIO
@@ -28,7 +29,7 @@ if not st.session_state.authenticated:
     login()
     st.stop()
 
-# --- LAYOUT ---
+# --- LAYOUT EN COLUMNAS ---
 with st.sidebar:
     st.markdown("### 📁 Subir archivo")
     tipo_fuente = st.radio("Fuente de datos", ["Excel", "Google Sheets"])
@@ -48,59 +49,64 @@ with st.sidebar:
             sheet = client.open_by_url(url)
             data = {ws.title: pd.DataFrame(ws.get_all_records()) for ws in sheet.worksheets()}
 
-# --- FUNCIONES ---
-def ask_openai(prompt):
+# --- MOSTRAR TABLAS ---
+st.markdown("### 📊 Vista previa de datos")
+if data:
+    for name, df in data.items():
+        st.markdown(f"#### 🧾 Hoja: {name}")
+        st.dataframe(df.head(10))
+
+# --- CONSULTAS CON IA ---
+st.markdown("### 🤖 Consultar con IA")
+pregunta = st.text_area("Haz una pregunta sobre los datos")
+if st.button("Responder") and pregunta and data:
+    contenido = ""
+    for name, df in data.items():
+        contenido += f"Hoja: {name}\n{df.head(50).to_string(index=False)}\n\n"
+
+    prompt = (
+        "Eres un controller financiero experto. Analiza los siguientes datos de un taller "
+        "de desabolladura y pintura de vehículos livianos y pesados:\n\n"
+        f"{contenido}\n"
+        f"Pregunta: {pregunta}\n\n"
+        "Responde con análisis detallado, gráfico si es útil, y una tabla si aplica. "
+        "Sé profesional, claro y enfocado en decisiones estratégicas. Si detectas columnas categóricas con montos o cantidades, puedes generar automáticamente un gráfico. "
+        "Si detectas comparaciones que se pueden mostrar como tabla, crea una con pandas."
+    )
+
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.2
-    )
-    return response.choices[0].message.content
-
-def generar_grafico_torta(df, columna, valores):
-    resumen = df.groupby(columna)[valores].sum()
-    fig, ax = plt.subplots()
-    resumen.plot.pie(ax=ax, autopct='%1.1f%%')
-    ax.set_ylabel("")
-    ax.set_title(f"Distribución de {valores} por {columna}")
-    st.pyplot(fig)
-
-def generar_tabla(df, columnas):
-    st.markdown("#### 📋 Tabla generada automáticamente")
-    st.dataframe(df[columns])
-
-# --- VISUALIZACIÓN CENTRAL ---
-if data:
-    st.markdown("### 📊 Vista previa de datos")
-    for nombre, df in data.items():
-        st.markdown(f"#### 🧾 Hoja: {nombre}")
-        st.dataframe(df.head(15))
-
-# --- CONSULTAS CON IA ---
-st.markdown("### 🤖 Consultas al Controller Financiero IA")
-pregunta = st.text_area("Haz una pregunta específica (ej. '¿Cuál es el ingreso mensual promedio por tipo de cliente?')")
-if st.button("Responder") and pregunta and data:
-    st.markdown("#### 💬 Respuesta del Controller Financiero IA")
-
-    contenido = ""
-    for name, df in data.items():
-        contenido += f"\nHoja: {name}\n"
-        contenido += df.head(50).to_string(index=False)
-
-    prompt = (
-        "Actúa como un controller financiero experto en talleres de desabolladura y pintura de vehículos pesados y livianos.\n"
-        "Con base en los siguientes datos cargados desde un libro Excel/Google Sheets, responde de manera profesional, detallada y útil para la toma de decisiones.\n"
-        "Puedes generar gráficos de torta, barras, líneas y tablas si consideras que ayudan al análisis. También entrega recomendaciones claras.\n"
-        f"\n\n{contenido}\n\n"
-        f"Consulta: {pregunta}\n"
-        "Responde directamente con base en los datos. Si es útil, entrega un gráfico automáticamente."
+        temperature=0.3
     )
 
-    try:
-        respuesta = ask_openai(prompt)
-        st.markdown(respuesta)
-        # Aquí puedes analizar si el modelo sugiere un gráfico o tabla y ejecutarlo si es posible (requiere más parsing si quieres automatizarlo completamente)
-    except Exception as e:
-        st.error(f"❌ Error al consultar OpenAI: {e}")
+    respuesta = response.choices[0].message.content
+    st.markdown("#### 💬 Respuesta de IA")
+    st.markdown(respuesta)
 
+    # INTENTA DETECTAR TABLAS
+    if "|" in respuesta:
+        try:
+            import io
+            df_table = pd.read_csv(io.StringIO(respuesta), sep="|")
+            st.markdown("#### 📋 Tabla generada")
+            st.dataframe(df_table)
+        except Exception:
+            pass
+
+    # GRAFICO AUTOMÁTICO SI DETECTA CLAVES
+    if "grafico de torta" in respuesta.lower():
+        for name, df in data.items():
+            posibles_columnas = [c for c in df.columns if df[c].nunique() < 20 and df[c].dtype == object]
+            posibles_valores = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+            if posibles_columnas and posibles_valores:
+                col_cat = posibles_columnas[0]
+                col_val = posibles_valores[0]
+                resumen = df.groupby(col_cat)[col_val].sum()
+                fig, ax = plt.subplots()
+                resumen.plot.pie(autopct='%1.1f%%', ax=ax)
+                ax.set_ylabel("")
+                ax.set_title(f"Distribución de {col_val} por {col_cat}")
+                st.pyplot(fig)
+                break
