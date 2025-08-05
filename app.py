@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import gspread
@@ -6,46 +5,43 @@ import json
 import plotly.express as px
 import requests
 from google.oauth2.service_account import Credentials
+import io
 
 # Configuración inicial
 st.set_page_config(page_title="Controller Financiero IA", layout="wide")
-st.title("📊 Controller Financiero Inteligente con DeepSeek (via Together.ai)")
+st.title("📊 Controller Financiero Inteligente con OpenRouter")
 
-# Cargar credenciales de Google Sheets
+# Cargar credenciales
 creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
 scope = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
 gc = gspread.authorize(creds)
 
-# Leer clave API de Together
-TOGETHER_API_KEY = st.secrets.get("TOGETHER_API_KEY", "")
-st.write("🔑 Clave detectada:", TOGETHER_API_KEY[:10] + "...")  # Mostrar parte de la clave
-
 # Sesión para historial
 if "historial" not in st.session_state:
     st.session_state["historial"] = []
 
-def preguntar_deepseek(prompt):
+# Función para consultar modelo vía OpenRouter
+def consultar_openrouter(prompt):
+    api_key = st.secrets["OPENROUTER_API_KEY"]
     headers = {
-        "Authorization": f"Bearer {TOGETHER_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
-    payload = {
-        "model": "deepseek-chat",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 1024,
-        "temperature": 0.7
+    data = {
+        "model": "mistral",
+        "messages": [
+            {"role": "system", "content": "Eres un controller financiero experto en análisis."},
+            {"role": "user", "content": prompt}
+        ]
     }
     try:
-        response = requests.post("https://api.together.xyz/v1/chat/completions", headers=headers, json=payload)
-        resultado = response.json()
-        st.write("🔍 Respuesta completa de la API:", resultado)  # Mostrar respuesta completa
-        if "choices" in resultado:
-            return resultado["choices"][0]["message"]["content"]
-        else:
-            return f"⚠️ Error en respuesta: {resultado}"
+        response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data)
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
     except Exception as e:
-        return f"❌ Error general al consultar DeepSeek: {e}"
+        st.error(f"⚠️ Error al consultar OpenRouter: {e}")
+        return None
 
 # Carga de datos
 st.subheader("1. Cargar Planilla Financiera")
@@ -78,7 +74,6 @@ if df is not None and not df.empty:
     st.success("✅ Datos cargados correctamente")
     st.dataframe(df.head())
 
-    # Botones inteligentes
     st.subheader("2. Acciones Inteligentes")
     col1, col2, col3 = st.columns(3)
 
@@ -86,44 +81,46 @@ if df is not None and not df.empty:
         if st.button("📈 Analizar Rentabilidad"):
             pregunta = "¿Cuál es la rentabilidad general de la empresa?"
             csv = df.to_csv(index=False)
-            prompt = f"Eres un controller financiero. Analiza la siguiente tabla y responde profesionalmente: {pregunta}\n\nDatos:\n{csv}"
-            respuesta = preguntar_deepseek(prompt)
-            st.markdown("### 💬 Respuesta")
-            st.write(respuesta)
-            st.session_state["historial"].append((pregunta, respuesta))
+            prompt = f"{pregunta}\n\nDatos:\n{csv}"
+            respuesta = consultar_openrouter(prompt)
+            if respuesta:
+                st.markdown("### 💬 Respuesta")
+                st.write(respuesta)
+                st.session_state["historial"].append((pregunta, respuesta))
 
     with col2:
         if st.button("📉 Ver meses con pérdida"):
-            pregunta = "¿Cuáles son los meses en que se registraron pérdidas?"
+            pregunta = "¿Cuáles son los meses con pérdida?"
             csv = df.to_csv(index=False)
-            prompt = f"Eres un controller financiero. Analiza la siguiente tabla y responde profesionalmente: {pregunta}\n\nDatos:\n{csv}"
-            respuesta = preguntar_deepseek(prompt)
-            st.markdown("### 💬 Respuesta")
-            st.write(respuesta)
-            st.session_state["historial"].append((pregunta, respuesta))
+            prompt = f"{pregunta}\n\nDatos:\n{csv}"
+            respuesta = consultar_openrouter(prompt)
+            if respuesta:
+                st.markdown("### 💬 Respuesta")
+                st.write(respuesta)
+                st.session_state["historial"].append((pregunta, respuesta))
 
     with col3:
         if st.button("💡 Recomendaciones de mejora"):
             pregunta = "¿Qué recomendaciones puedes dar para mejorar la rentabilidad o reducir costos?"
             csv = df.to_csv(index=False)
-            prompt = f"Eres un controller financiero. Analiza la siguiente tabla y responde profesionalmente: {pregunta}\n\nDatos:\n{csv}"
-            respuesta = preguntar_deepseek(prompt)
-            st.markdown("### 💬 Respuesta")
-            st.write(respuesta)
-            st.session_state["historial"].append((pregunta, respuesta))
+            prompt = f"{pregunta}\n\nDatos:\n{csv}"
+            respuesta = consultar_openrouter(prompt)
+            if respuesta:
+                st.markdown("### 💬 Respuesta")
+                st.write(respuesta)
+                st.session_state["historial"].append((pregunta, respuesta))
 
-    # Pregunta libre
     st.subheader("3. Pregunta libre")
     pregunta = st.text_input("Haz una pregunta financiera basada en tus datos")
     if pregunta:
         csv = df.to_csv(index=False)
-        prompt = f"Eres un experto financiero. Analiza la siguiente tabla y responde: {pregunta}\n\nDatos:\n{csv}"
-        respuesta = preguntar_deepseek(prompt)
-        st.markdown("### 💬 Respuesta")
-        st.write(respuesta)
-        st.session_state["historial"].append((pregunta, respuesta))
+        prompt = f"{pregunta}\n\nDatos:\n{csv}"
+        respuesta = consultar_openrouter(prompt)
+        if respuesta:
+            st.markdown("### 💬 Respuesta")
+            st.write(respuesta)
+            st.session_state["historial"].append((pregunta, respuesta))
 
-    # Gráfico automático
     st.subheader("4. Visualización de Datos")
     columnas_numericas = df.select_dtypes(include=["number"]).columns.tolist()
     columnas_categoria = df.select_dtypes(exclude=["number"]).columns.tolist()
@@ -142,7 +139,6 @@ if df is not None and not df.empty:
 
         st.plotly_chart(fig)
 
-    # Exportar historial
     st.subheader("5. Historial de conversación")
     if st.button("💾 Exportar historial en CSV"):
         if st.session_state["historial"]:
