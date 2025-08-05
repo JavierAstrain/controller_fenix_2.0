@@ -7,11 +7,20 @@ from google.oauth2.service_account import Credentials
 from openai import OpenAI
 import io
 
-# --- LOGIN BÁSICO ---
-user, pwd = st.text_input("Usuario"), st.text_input("Contraseña", type="password")
-if user != "adm" or pwd != "adm":
-    st.warning("🔒 Ingresa con usuario y contraseña válidos para acceder.")
-    st.stop()
+# --- LOGIN SIMPLIFICADO ---
+if "logueado" not in st.session_state:
+    st.session_state["logueado"] = False
+
+if not st.session_state["logueado"]:
+    st.set_page_config(page_title="Login | Controller Financiero IA", layout="centered")
+    st.title("🔐 Iniciar sesión")
+    user = st.text_input("Usuario")
+    pwd = st.text_input("Contraseña", type="password")
+    if user == "adm" and pwd == "adm":
+        st.session_state["logueado"] = True
+        st.experimental_rerun()
+    else:
+        st.stop()
 
 # Configuración inicial
 st.set_page_config(page_title="Controller Financiero IA", layout="wide")
