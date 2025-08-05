@@ -7,9 +7,15 @@ from google.oauth2.service_account import Credentials
 from openai import OpenAI
 import io
 
+# --- LOGIN BÁSICO ---
+user, pwd = st.text_input("Usuario"), st.text_input("Contraseña", type="password")
+if user != "adm" or pwd != "adm":
+    st.warning("🔒 Ingresa con usuario y contraseña válidos para acceder.")
+    st.stop()
+
 # Configuración inicial
 st.set_page_config(page_title="Controller Financiero IA", layout="wide")
-st.title("📊 Controller Financiero Inteligente con OpenAI")
+st.title("📊 Controller Financiero IA")
 
 # Cargar credenciales
 google_creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
