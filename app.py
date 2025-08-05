@@ -3,29 +3,30 @@ import pandas as pd
 import gspread
 import json
 import plotly.express as px
-import openai
 from google.oauth2.service_account import Credentials
+from openai import OpenAI
+import io
 
-# Config inicial
+# Configuración inicial
 st.set_page_config(page_title="Controller Financiero IA", layout="wide")
-st.title("📊 Controller Financiero con OpenAI (GPT-3.5)")
+st.title("📊 Controller Financiero Inteligente con OpenAI")
 
-# Cargar credenciales de Google Sheets
-google_creds = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+# Cargar credenciales
+google_creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
 scope = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-creds = Credentials.from_service_account_info(google_creds, scopes=scope)
-gc = gspread.authorize(creds)
+google_creds = Credentials.from_service_account_info(google_creds_dict, scopes=scope)
+gc = gspread.authorize(google_creds)
 
-# API Key de OpenAI
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# Historial de conversación
+# Sesión para historial
 if "historial" not in st.session_state:
     st.session_state["historial"] = []
 
-# Carga de planilla
+# Carga de datos
 st.subheader("1. Cargar Planilla Financiera")
 opcion = st.radio("¿Desde dónde quieres cargar tus datos?", ["Excel", "Google Sheets"])
+
 df = None
 hojas = []
 
@@ -49,25 +50,28 @@ elif opcion == "Google Sheets":
         except Exception as e:
             st.error(f"No se pudo cargar: {e}")
 
-# Función para consultar OpenAI GPT-3.5
-def consultar_openai(pregunta, df):
-    csv = df.to_csv(index=False)
-    prompt = f"Eres un experto controller financiero. Analiza la siguiente tabla y responde profesionalmente: {pregunta}\n\nDatos:\n{csv}"
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"⚠️ Error al consultar OpenAI: {e}"
-
 if df is not None and not df.empty:
     st.success("✅ Datos cargados correctamente")
     st.dataframe(df.head())
 
+    # Botones inteligentes
     st.subheader("2. Acciones Inteligentes")
     col1, col2, col3 = st.columns(3)
+
+    def consultar_openai(pregunta, df):
+        csv = df.to_csv(index=False)
+        prompt = f"Eres un controller financiero. Analiza la siguiente tabla y responde profesionalmente: {pregunta}\n\nDatos:\n{csv}"
+        try:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "Eres un experto financiero."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"⚠️ Error al consultar OpenAI: {e}"
 
     with col1:
         if st.button("📈 Analizar Rentabilidad"):
@@ -93,6 +97,7 @@ if df is not None and not df.empty:
             st.write(respuesta)
             st.session_state["historial"].append((pregunta, respuesta))
 
+    # Pregunta libre
     st.subheader("3. Pregunta libre")
     pregunta = st.text_input("Haz una pregunta financiera basada en tus datos")
     if pregunta:
@@ -101,6 +106,7 @@ if df is not None and not df.empty:
         st.write(respuesta)
         st.session_state["historial"].append((pregunta, respuesta))
 
+    # Gráfico automático
     st.subheader("4. Visualización de Datos")
     columnas_numericas = df.select_dtypes(include=["number"]).columns.tolist()
     columnas_categoria = df.select_dtypes(exclude=["number"]).columns.tolist()
@@ -119,6 +125,7 @@ if df is not None and not df.empty:
 
         st.plotly_chart(fig)
 
+    # Exportar historial
     st.subheader("5. Historial de conversación")
     if st.button("💾 Exportar historial en CSV"):
         if st.session_state["historial"]:
