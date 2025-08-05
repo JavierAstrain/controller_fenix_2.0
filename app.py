@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import gspread
@@ -35,9 +36,13 @@ def preguntar_deepseek(prompt):
     }
     try:
         response = requests.post("https://api.together.xyz/v1/chat/completions", headers=headers, json=payload)
-        return response.json()["choices"][0]["message"]["content"]
+        resultado = response.json()
+        if "choices" in resultado:
+            return resultado["choices"][0]["message"]["content"]
+        else:
+            return f"⚠️ Error en respuesta: {resultado}"
     except Exception as e:
-        return f"Error consultando DeepSeek: {e}"
+        return f"❌ Error general al consultar DeepSeek: {e}"
 
 # Carga de datos
 st.subheader("1. Cargar Planilla Financiera")
