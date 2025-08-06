@@ -28,12 +28,10 @@ if not st.session_state.authenticated:
     login()
     st.stop()
 
-# --- LAYOUT ---
-col1, col2, col3 = st.columns([1, 2, 1])
+# --- FUNCIONES ---
 
-# --- FUNCIONES DE CARGA ---
 def load_excel(file):
-    return pd.read_excel(file, sheet_name=None, engine="openpyxl")
+    return pd.read_excel(file, sheet_name=None)
 
 def load_gsheet(json_keyfile, sheet_url):
     creds_dict = json.loads(json_keyfile)
@@ -43,7 +41,6 @@ def load_gsheet(json_keyfile, sheet_url):
     sheet = client.open_by_url(sheet_url)
     return {ws.title: pd.DataFrame(ws.get_all_records()) for ws in sheet.worksheets()}
 
-# --- FUNCIONES IA + VISUALIZACIÓN ---
 def ask_gpt(prompt):
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
     response = client.chat.completions.create(
@@ -53,34 +50,33 @@ def ask_gpt(prompt):
     )
     return response.choices[0].message.content
 
-def generar_grafico_torta(df, columna_categoria, columna_valor, titulo):
-    resumen = df.groupby(columna_categoria)[columna_valor].sum()
+def mostrar_grafico_torta(df, col_categoria, col_valor, titulo):
+    resumen = df.groupby(col_categoria)[col_valor].sum()
     fig, ax = plt.subplots()
-    resumen.plot(kind="pie", autopct="%1.1f%%", ax=ax)
+    ax.pie(resumen, labels=resumen.index, autopct='%1.1f%%', startangle=90)
     ax.set_title(titulo)
-    ax.set_ylabel("")
     st.pyplot(fig)
 
-def generar_grafico_barras(df, columna_categoria, columna_valor, titulo):
-    resumen = df.groupby(columna_categoria)[columna_valor].sum().reset_index()
+def mostrar_grafico_barras(df, col_categoria, col_valor, titulo):
+    resumen = df.groupby(col_categoria)[col_valor].sum().sort_values()
     fig, ax = plt.subplots()
-    ax.bar(resumen[columna_categoria], resumen[columna_valor])
+    resumen.plot(kind="barh", ax=ax)
     ax.set_title(titulo)
-    ax.set_ylabel(columna_valor)
-    ax.set_xlabel(columna_categoria)
+    ax.set_xlabel(col_valor)
     st.pyplot(fig)
 
-def mostrar_tabla_resumen(df, columna_categoria, columna_valor):
-    resumen = df.groupby(columna_categoria)[columna_valor].sum().reset_index()
-    st.markdown("### 📋 Tabla resumen")
+def mostrar_tabla(df, col_categoria, col_valor):
+    resumen = df.groupby(col_categoria)[col_valor].sum().reset_index()
+    st.markdown("### 📊 Tabla Resumen")
     st.dataframe(resumen)
 
-# --- INTERFAZ: CARGA ---
+# --- INTERFAZ EN COLUMNAS ---
+col1, col2, col3 = st.columns([1, 2, 1])
+data = None
+
 with col1:
     st.markdown("### 📁 Subir archivo")
     tipo_fuente = st.radio("Fuente de datos", ["Excel", "Google Sheets"])
-    data = None
-
     if tipo_fuente == "Excel":
         file = st.file_uploader("Sube un archivo Excel", type=["xlsx", "xls"])
         if file:
@@ -90,46 +86,53 @@ with col1:
         if url and st.button("Conectar"):
             data = load_gsheet(st.secrets["GOOGLE_CREDENTIALS"], url)
 
-# --- VISTA DE DATOS ---
 with col2:
     if data:
-        st.markdown("### 📊 Vista previa de datos")
+        st.markdown("### 📄 Vista previa")
         for name, df in data.items():
-            st.markdown(f"#### 🧾 Hoja: {name}")
+            st.markdown(f"#### 📘 Hoja: {name}")
             st.dataframe(df.head(10))
 
-# --- CONSULTA CON IA ---
 with col3:
-    st.markdown("### 🤖 Consultar con IA")
-    pregunta = st.text_area("Haz una pregunta sobre los datos")
-    if st.button("Responder") and pregunta and data:
-        contenido = ""
-        for name, df in data.items():
-            contenido += f"Hoja: {name}\n{df.head(50).to_string(index=False)}\n\n"
+    if data:
+        st.markdown("### 🤖 Consulta con IA")
+        pregunta = st.text_area("Pregunta")
+        if st.button("Responder") and pregunta:
+            contenido = ""
+            for name, df in data.items():
+                contenido += f"Hoja: {name}\n{df.head(50).to_string(index=False)}\n\n"
 
-        prompt = (
-            "Eres un controller financiero experto. Analiza los siguientes datos de un taller "
-            "de desabolladura y pintura de vehículos livianos y pesados:\n\n"
-            f"{contenido}\n"
-            f"Pregunta: {pregunta}\n\n"
-            "Responde con análisis profesional y estratégico. "
-            "Si es útil, responde con alguno de estos formatos especiales al final:\n"
-            "- Gráfico de torta: `grafico_torta:columna_categoria|columna_valor|titulo`\n"
-            "- Gráfico de barras: `grafico_barras:columna_categoria|columna_valor|titulo`\n"
-            "- Tabla resumen: `tabla_resumen:columna_categoria|columna_valor`\n"
-        )
+            prompt = (
+                "Eres un controller financiero experto. Analiza los siguientes datos de un taller "
+                "de desabolladura y pintura de vehículos livianos y pesados:\n\n"
+                f"{contenido}\n"
+                f"Pregunta: {pregunta}\n\n"
+                "Responde con análisis detallado y genera instrucciones de visualización si es útil.\n"
+                "Si deseas un gráfico, usa el formato: grafico_torta:columna_categoria|columna_valor|titulo\n"
+                "Para gráfico de barras usa: grafico_barras:columna_categoria|columna_valor|titulo\n"
+                "Para una tabla usa: tabla:columna_categoria|columna_valor"
+            )
 
-        respuesta = ask_gpt(prompt)
-        st.markdown(respuesta)
+            respuesta = ask_gpt(prompt)
+            st.markdown(respuesta)
 
-        # Detectar y ejecutar instrucciones de visualización
-        for name, df in data.items():
-            if "grafico_torta:" in respuesta:
-                partes = respuesta.split("grafico_torta:")[1].split("|")
-                generar_grafico_torta(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
-            if "grafico_barras:" in respuesta:
-                partes = respuesta.split("grafico_barras:")[1].split("|")
-                generar_grafico_barras(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
-            if "tabla_resumen:" in respuesta:
-                partes = respuesta.split("tabla_resumen:")[1].split("|")
-                mostrar_tabla_resumen(df, partes[0].strip(), partes[1].strip())
+            # Procesar visualizaciones
+            for linea in respuesta.splitlines():
+                if "grafico_torta:" in linea:
+                    partes = linea.replace("grafico_torta:", "").split("|")
+                    if len(partes) == 3:
+                        for hoja, df in data.items():
+                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
+                                mostrar_grafico_torta(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
+                if "grafico_barras:" in linea:
+                    partes = linea.replace("grafico_barras:", "").split("|")
+                    if len(partes) == 3:
+                        for hoja, df in data.items():
+                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
+                                mostrar_grafico_barras(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
+                if "tabla:" in linea:
+                    partes = linea.replace("tabla:", "").split("|")
+                    if len(partes) == 2:
+                        for hoja, df in data.items():
+                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
+                                mostrar_tabla(df, partes[0].strip(), partes[1].strip())
