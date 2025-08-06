@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -10,6 +9,7 @@ from io import BytesIO
 
 st.set_page_config(layout="wide", page_title="Controller Financiero IA")
 
+# --- LOGIN ---
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
@@ -28,10 +28,12 @@ if not st.session_state.authenticated:
     login()
     st.stop()
 
+# --- LAYOUT ---
 col1, col2, col3 = st.columns([1, 2, 1])
 
+# --- FUNCIONES DE CARGA ---
 def load_excel(file):
-    return pd.read_excel(file, sheet_name=None)
+    return pd.read_excel(file, sheet_name=None, engine="openpyxl")
 
 def load_gsheet(json_keyfile, sheet_url):
     creds_dict = json.loads(json_keyfile)
@@ -41,6 +43,7 @@ def load_gsheet(json_keyfile, sheet_url):
     sheet = client.open_by_url(sheet_url)
     return {ws.title: pd.DataFrame(ws.get_all_records()) for ws in sheet.worksheets()}
 
+# --- FUNCIONES IA + VISUALIZACIÓN ---
 def ask_gpt(prompt):
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
     response = client.chat.completions.create(
@@ -72,6 +75,7 @@ def mostrar_tabla_resumen(df, columna_categoria, columna_valor):
     st.markdown("### 📋 Tabla resumen")
     st.dataframe(resumen)
 
+# --- INTERFAZ: CARGA ---
 with col1:
     st.markdown("### 📁 Subir archivo")
     tipo_fuente = st.radio("Fuente de datos", ["Excel", "Google Sheets"])
@@ -86,6 +90,7 @@ with col1:
         if url and st.button("Conectar"):
             data = load_gsheet(st.secrets["GOOGLE_CREDENTIALS"], url)
 
+# --- VISTA DE DATOS ---
 with col2:
     if data:
         st.markdown("### 📊 Vista previa de datos")
@@ -93,6 +98,7 @@ with col2:
             st.markdown(f"#### 🧾 Hoja: {name}")
             st.dataframe(df.head(10))
 
+# --- CONSULTA CON IA ---
 with col3:
     st.markdown("### 🤖 Consultar con IA")
     pregunta = st.text_area("Haz una pregunta sobre los datos")
@@ -106,22 +112,24 @@ with col3:
             "de desabolladura y pintura de vehículos livianos y pesados:\n\n"
             f"{contenido}\n"
             f"Pregunta: {pregunta}\n\n"
-            "Responde con análisis detallado. Si es útil y detectas que el usuario lo solicita, "
-            "responde usando este formato markdown:\n"
-            "Si hay un gráfico de torta, responde con: `grafico_torta:<columna_categoria>|<columna_valor>|<titulo>`\n"
-            "Si hay un gráfico de barras, responde con: `grafico_barras:<columna_categoria>|<columna_valor>|<titulo>`\n"
-            "Si deseas mostrar tabla resumen, responde con: `tabla_resumen:<columna_categoria>|<columna_valor>`\n"
+            "Responde con análisis profesional y estratégico. "
+            "Si es útil, responde con alguno de estos formatos especiales al final:\n"
+            "- Gráfico de torta: `grafico_torta:columna_categoria|columna_valor|titulo`\n"
+            "- Gráfico de barras: `grafico_barras:columna_categoria|columna_valor|titulo`\n"
+            "- Tabla resumen: `tabla_resumen:columna_categoria|columna_valor`\n"
         )
 
         respuesta = ask_gpt(prompt)
         st.markdown(respuesta)
 
-        if "grafico_torta:" in respuesta:
-            partes = respuesta.split("grafico_torta:")[1].split("|")
-            generar_grafico_torta(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
-        if "grafico_barras:" in respuesta:
-            partes = respuesta.split("grafico_barras:")[1].split("|")
-            generar_grafico_barras(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
-        if "tabla_resumen:" in respuesta:
-            partes = respuesta.split("tabla_resumen:")[1].split("|")
-            mostrar_tabla_resumen(df, partes[0].strip(), partes[1].strip())
+        # Detectar y ejecutar instrucciones de visualización
+        for name, df in data.items():
+            if "grafico_torta:" in respuesta:
+                partes = respuesta.split("grafico_torta:")[1].split("|")
+                generar_grafico_torta(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
+            if "grafico_barras:" in respuesta:
+                partes = respuesta.split("grafico_barras:")[1].split("|")
+                generar_grafico_barras(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
+            if "tabla_resumen:" in respuesta:
+                partes = respuesta.split("tabla_resumen:")[1].split("|")
+                mostrar_tabla_resumen(df, partes[0].strip(), partes[1].strip())
