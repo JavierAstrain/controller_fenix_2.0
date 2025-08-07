@@ -109,7 +109,13 @@ with col3:
         if st.button("Responder") and pregunta:
             contenido = ""
             for name, df in data.items():
-                contenido += f"Hoja: {name}\n{df.head(50).to_string(index=False)}\n\n"
+                contenido += f"Resumen de la hoja: {name}\n"
+            contenido += f"- Total de filas: {len(df)}\n"
+            contenido += f"- Columnas: {', '.join(df.columns)}\n"
+            for col in df.select_dtypes(include=['number']).columns:
+                total = df[col].sum()
+                contenido += f"- Total de {col}: {total:,.0f}\n"
+            contenido += "\n"
 
             prompt = f"""
 Datos disponibles:\n\n{contenido}\n
@@ -148,7 +154,13 @@ Si es útil, usa alguno de estos formatos para visualizar:
         if st.button("📊 Análisis General Automático"):
             contenido = ""
             for name, df in data.items():
-                contenido += f"Hoja: {name}\n{df.head(50).to_string(index=False)}\n\n"
+                contenido += f"Resumen de la hoja: {name}\n"
+            contenido += f"- Total de filas: {len(df)}\n"
+            contenido += f"- Columnas: {', '.join(df.columns)}\n"
+            for col in df.select_dtypes(include=['number']).columns:
+                total = df[col].sum()
+                contenido += f"- Total de {col}: {total:,.0f}\n"
+            contenido += "\n"
 
             prompt = f"""
 Actúa como un controller financiero experto. Analiza de forma general los siguientes datos del taller de desabolladura y pintura.
@@ -157,7 +169,7 @@ Actúa como un controller financiero experto. Analiza de forma general los sigui
 - Solo debes utilizar los datos entregados.
 - No inventes ni redondees valores.
 - No presentes montos si no están expresamente indicados en los datos.
-- Si no hay valores exactos disponibles, menciona que los valores no están definidos con precisión.
+- Si no puedes responder con precisión, dilo claramente.
 - Puedes sugerir visualizaciones solo si los datos lo permiten.
 
 Datos disponibles:\n\n{contenido}
