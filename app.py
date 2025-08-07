@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -5,7 +6,6 @@ import gspread
 import json
 from google.oauth2.service_account import Credentials
 from openai import OpenAI
-from io import BytesIO
 
 st.set_page_config(layout="wide", page_title="Controller Financiero IA")
 
@@ -102,21 +102,25 @@ with col3:
             for name, df in data.items():
                 contenido += f"Hoja: {name}\n{df.head(50).to_string(index=False)}\n\n"
 
-            prompt = (
-                "Eres un controller financiero experto. Analiza los siguientes datos de un taller "
-                "de desabolladura y pintura de vehículos livianos y pesados:\n\n"
-                f"{contenido}\n"
-                f"Pregunta: {pregunta}\n\n"
-                "Responde con análisis detallado y genera instrucciones de visualización si es útil.\n"
-                "Si deseas un gráfico, usa el formato: grafico_torta:columna_categoria|columna_valor|titulo\n"
-                "Para gráfico de barras usa: grafico_barras:columna_categoria|columna_valor|titulo\n"
-                "Para una tabla usa: tabla:columna_categoria|columna_valor"
-            )
+            prompt = f"""
+Actúa como un controller financiero experto de un taller de desabolladura y pintura. Tu tarea es analizar los datos que se te entregan y responder con:
+
+1. Un análisis financiero claro y profesional.
+2. Si corresponde, sugiere visualizaciones en alguno de estos formatos:
+   - grafico_torta:col_categoria|col_valor|titulo
+   - grafico_barras:col_categoria|col_valor|titulo
+   - tabla:col_categoria|col_valor
+3. Entrega al menos una recomendación o decisión sugerida de gestión.
+
+No inventes información. Usa solo los datos que te entrego. No expliques cómo responder, solo hazlo como experto.
+
+Datos disponibles:\n\n{contenido}\n
+Pregunta del usuario: {pregunta}
+""".strip()
 
             respuesta = ask_gpt(prompt)
             st.markdown(respuesta)
 
-            # Procesar visualizaciones
             for linea in respuesta.splitlines():
                 if "grafico_torta:" in linea:
                     partes = linea.replace("grafico_torta:", "").split("|")
