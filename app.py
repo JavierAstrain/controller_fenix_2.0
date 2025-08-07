@@ -115,7 +115,7 @@ with col3:
 Datos disponibles:\n\n{contenido}\n
 Pregunta del usuario: {pregunta}\n
 Tu rol es responder como controller financiero con análisis, visualización (si aplica) y recomendaciones.
-Si es últil, usa alguno de estos formatos para visualizar:
+Si es útil, usa alguno de estos formatos para visualizar:
 - grafico_torta:col_categoria|col_valor|titulo
 - grafico_barras:col_categoria|col_valor|titulo
 - tabla:col_categoria|col_valor
@@ -152,12 +152,15 @@ Si es últil, usa alguno de estos formatos para visualizar:
 
             prompt = f"""
 Actúa como un controller financiero experto. Analiza de forma general los siguientes datos del taller de desabolladura y pintura.
-Entrega:
-1. Análisis financiero general
-2. Visualizaciones sugeridas (si aplica)
-3. Recomendaciones
 
-Usa solo los datos entregados.\n\n{contenido}
+🔹 REGLAS IMPORTANTES:
+- Solo debes utilizar los datos entregados.
+- No inventes ni redondees valores.
+- No presentes montos si no están expresamente indicados en los datos.
+- Si no hay valores exactos disponibles, menciona que los valores no están definidos con precisión.
+- Puedes sugerir visualizaciones solo si los datos lo permiten.
+
+Datos disponibles:\n\n{contenido}
 """.strip()
 
             respuesta = ask_gpt(prompt)
