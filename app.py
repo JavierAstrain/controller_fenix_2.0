@@ -163,7 +163,35 @@ Si es útil, usa alguno de estos formatos para visualizar:
             contenido += "\n"
 
             prompt = f"""
-Actúa como un controller financiero experto. Analiza de forma general los siguientes datos del taller de desabolladura y pintura.
+Contexto del negocio:
+
+La hoja 'RECEPCION' contiene el registro de todos los vehículos que ingresan al taller. Cada fila representa una recepción individual e incluye:
+- Fecha de ingreso.
+- Tipo de cliente: Seguro, Particular o Flota.
+- Tipo de vehículo: Liviano o Pesado.
+- Estado del presupuesto: Ganado, Perdido o Enviado.
+Esta hoja permite analizar el flujo de ingresos, el tipo de clientes más frecuentes y la efectividad comercial en conversión de presupuestos.
+
+La hoja 'REPARACION' contiene el detalle de los procesos realizados en cada vehículo recibido. Incluye columnas como:
+- Tipo de proceso: Desabolladura, Pintura, Lavado, Desarme.
+- Fecha del proceso.
+- Especialista asignado.
+Permite medir la carga de trabajo, eficiencia operativa, distribución de procesos por tipo y desempeño del personal técnico.
+
+La hoja 'FACTURACION' contiene los ingresos generados por cada servicio realizado. Incluye:
+- Fecha y mes de facturación.
+- Tipo de cliente: Seguro, Particular o Flota.
+- Tipo de vehículo: Liviano o Pesado.
+- Monto Neto facturado por trabajo.
+Esta hoja permite evaluar ingresos totales, ingresos por tipo de cliente, por tipo de vehículo y tendencias mensuales.
+
+La hoja 'FINANZAS' contiene los egresos y costos del taller. Incluye:
+- Categorías de costos: Repuestos, Pintura, Arriendo, Sueldos, Impuestos, Administración, entre otros.
+- Mes en que se incurrió el costo.
+- Monto del egreso.
+Esta hoja es clave para evaluar los costos mensuales, calcular márgenes operacionales y detectar áreas de alto gasto.
+
+Eres un controller financiero experto del taller. Analiza los siguientes datos reales:
 
 🔹 REGLAS IMPORTANTES:
 - Solo debes utilizar los datos entregados.
