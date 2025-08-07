@@ -5,6 +5,7 @@ import gspread
 import json
 from google.oauth2.service_account import Credentials
 from openai import OpenAI
+from analizador import analizar_datos_taller
 
 st.set_page_config(layout="wide", page_title="Controller Financiero IA")
 
@@ -106,16 +107,31 @@ with col3:
         st.markdown("### 🤖 Consulta con IA")
         pregunta = st.text_area("Pregunta")
 
+        if st.button("📊 Análisis General Automático"):
+            analisis = analizar_datos_taller(data)
+            texto_analisis = json.dumps(analisis, indent=2, ensure_ascii=False)
+
+            prompt = f"""
+Contexto del negocio: Taller Fénix especializado en desabolladura y pintura de vehículos livianos y pesados.
+
+Actúa como un controller financiero senior. Evalúa los siguientes datos calculados del negocio, entregados por un motor de análisis real:
+
+{texto_analisis}
+
+Entrega:
+- Un análisis financiero profesional.
+- Visualizaciones sugeridas si corresponde.
+- Recomendaciones prácticas y accionables para la gerencia.
+- No inventes datos. Solo interpreta lo que se entrega.
+"""
+            respuesta = ask_gpt(prompt)
+            st.markdown(respuesta)
+            st.session_state.historial.append({"pregunta": "Análisis general", "respuesta": respuesta})
+
         if st.button("Responder") and pregunta:
             contenido = ""
             for name, df in data.items():
-                contenido += f"Resumen de la hoja: {name}\n"
-            contenido += f"- Total de filas: {len(df)}\n"
-            contenido += f"- Columnas: {', '.join(df.columns)}\n"
-            for col in df.select_dtypes(include=['number']).columns:
-                total = df[col].sum()
-                contenido += f"- Total de {col}: {total:,.0f}\n"
-            contenido += "\n"
+                contenido += f"Hoja: {name}\n{df.head(50).to_string(index=False)}\n\n"
 
             prompt = f"""
 Datos disponibles:\n\n{contenido}\n
@@ -130,99 +146,3 @@ Si es útil, usa alguno de estos formatos para visualizar:
             respuesta = ask_gpt(prompt)
             st.markdown(respuesta)
             st.session_state.historial.append({"pregunta": pregunta, "respuesta": respuesta})
-
-            for linea in respuesta.splitlines():
-                if "grafico_torta:" in linea:
-                    partes = linea.replace("grafico_torta:", "").split("|")
-                    if len(partes) == 3:
-                        for hoja, df in data.items():
-                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
-                                mostrar_grafico_torta(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
-                if "grafico_barras:" in linea:
-                    partes = linea.replace("grafico_barras:", "").split("|")
-                    if len(partes) == 3:
-                        for hoja, df in data.items():
-                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
-                                mostrar_grafico_barras(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
-                if "tabla:" in linea:
-                    partes = linea.replace("tabla:", "").split("|")
-                    if len(partes) == 2:
-                        for hoja, df in data.items():
-                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
-                                mostrar_tabla(df, partes[0].strip(), partes[1].strip())
-
-        if st.button("📊 Análisis General Automático"):
-            contenido = ""
-            for name, df in data.items():
-                contenido += f"Resumen de la hoja: {name}\n"
-            contenido += f"- Total de filas: {len(df)}\n"
-            contenido += f"- Columnas: {', '.join(df.columns)}\n"
-            for col in df.select_dtypes(include=['number']).columns:
-                total = df[col].sum()
-                contenido += f"- Total de {col}: {total:,.0f}\n"
-            contenido += "\n"
-
-            prompt = f"""
-Contexto del negocio:
-
-La hoja 'RECEPCION' contiene el registro de todos los vehículos que ingresan al taller. Cada fila representa una recepción individual e incluye:
-- Fecha de ingreso.
-- Tipo de cliente: Seguro, Particular o Flota.
-- Tipo de vehículo: Liviano o Pesado.
-- Estado del presupuesto: Ganado, Perdido o Enviado.
-Esta hoja permite analizar el flujo de ingresos, el tipo de clientes más frecuentes y la efectividad comercial en conversión de presupuestos.
-
-La hoja 'REPARACION' contiene el detalle de los procesos realizados en cada vehículo recibido. Incluye columnas como:
-- Tipo de proceso: Desabolladura, Pintura, Lavado, Desarme.
-- Fecha del proceso.
-- Especialista asignado.
-Permite medir la carga de trabajo, eficiencia operativa, distribución de procesos por tipo y desempeño del personal técnico.
-
-La hoja 'FACTURACION' contiene los ingresos generados por cada servicio realizado. Incluye:
-- Fecha y mes de facturación.
-- Tipo de cliente: Seguro, Particular o Flota.
-- Tipo de vehículo: Liviano o Pesado.
-- Monto Neto facturado por trabajo.
-Esta hoja permite evaluar ingresos totales, ingresos por tipo de cliente, por tipo de vehículo y tendencias mensuales.
-
-La hoja 'FINANZAS' contiene los egresos y costos del taller. Incluye:
-- Categorías de costos: Repuestos, Pintura, Arriendo, Sueldos, Impuestos, Administración, entre otros.
-- Mes en que se incurrió el costo.
-- Monto del egreso.
-Esta hoja es clave para evaluar los costos mensuales, calcular márgenes operacionales y detectar áreas de alto gasto.
-
-Eres un controller financiero experto del taller. Analiza los siguientes datos reales:
-
-🔹 REGLAS IMPORTANTES:
-- Solo debes utilizar los datos entregados.
-- No inventes ni redondees valores.
-- No presentes montos si no están expresamente indicados en los datos.
-- Si no puedes responder con precisión, dilo claramente.
-- Puedes sugerir visualizaciones solo si los datos lo permiten.
-
-Datos disponibles:\n\n{contenido}
-""".strip()
-
-            respuesta = ask_gpt(prompt)
-            st.markdown(respuesta)
-            st.session_state.historial.append({"pregunta": "Análisis general", "respuesta": respuesta})
-
-            for linea in respuesta.splitlines():
-                if "grafico_torta:" in linea:
-                    partes = linea.replace("grafico_torta:", "").split("|")
-                    if len(partes) == 3:
-                        for hoja, df in data.items():
-                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
-                                mostrar_grafico_torta(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
-                if "grafico_barras:" in linea:
-                    partes = linea.replace("grafico_barras:", "").split("|")
-                    if len(partes) == 3:
-                        for hoja, df in data.items():
-                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
-                                mostrar_grafico_barras(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
-                if "tabla:" in linea:
-                    partes = linea.replace("tabla:", "").split("|")
-                    if len(partes) == 2:
-                        for hoja, df in data.items():
-                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
-                                mostrar_tabla(df, partes[0].strip(), partes[1].strip())
