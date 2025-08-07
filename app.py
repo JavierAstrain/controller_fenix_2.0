@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -28,6 +27,10 @@ if not st.session_state.authenticated:
     login()
     st.stop()
 
+# --- MEMORIA DE CONVERSACIÓN ---
+if "historial" not in st.session_state:
+    st.session_state.historial = []
+
 # --- FUNCIONES ---
 
 def load_excel(file):
@@ -43,9 +46,14 @@ def load_gsheet(json_keyfile, sheet_url):
 
 def ask_gpt(prompt):
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+    messages = [{"role": "system", "content": "Eres un controller financiero experto de un taller de desabolladura y pintura."}]
+    for h in st.session_state.historial:
+        messages.append({"role": "user", "content": h["pregunta"]})
+        messages.append({"role": "assistant", "content": h["respuesta"]})
+    messages.append({"role": "user", "content": prompt})
     response = client.chat.completions.create(
         model="gpt-4o",
-        messages=[{"role": "user", "content": prompt}],
+        messages=messages,
         temperature=0.3
     )
     return response.choices[0].message.content
@@ -97,29 +105,64 @@ with col3:
     if data:
         st.markdown("### 🤖 Consulta con IA")
         pregunta = st.text_area("Pregunta")
+
         if st.button("Responder") and pregunta:
             contenido = ""
             for name, df in data.items():
                 contenido += f"Hoja: {name}\n{df.head(50).to_string(index=False)}\n\n"
 
             prompt = f"""
-Actúa como un controller financiero experto de un taller de desabolladura y pintura. Tu tarea es analizar los datos que se te entregan y responder con:
-
-1. Un análisis financiero claro y profesional.
-2. Si corresponde, sugiere visualizaciones en alguno de estos formatos:
-   - grafico_torta:col_categoria|col_valor|titulo
-   - grafico_barras:col_categoria|col_valor|titulo
-   - tabla:col_categoria|col_valor
-3. Entrega al menos una recomendación o decisión sugerida de gestión.
-
-No inventes información. Usa solo los datos que te entrego. No expliques cómo responder, solo hazlo como experto.
-
 Datos disponibles:\n\n{contenido}\n
-Pregunta del usuario: {pregunta}
+Pregunta del usuario: {pregunta}\n
+Tu rol es responder como controller financiero con análisis, visualización (si aplica) y recomendaciones.
+Si es últil, usa alguno de estos formatos para visualizar:
+- grafico_torta:col_categoria|col_valor|titulo
+- grafico_barras:col_categoria|col_valor|titulo
+- tabla:col_categoria|col_valor
 """.strip()
 
             respuesta = ask_gpt(prompt)
             st.markdown(respuesta)
+            st.session_state.historial.append({"pregunta": pregunta, "respuesta": respuesta})
+
+            for linea in respuesta.splitlines():
+                if "grafico_torta:" in linea:
+                    partes = linea.replace("grafico_torta:", "").split("|")
+                    if len(partes) == 3:
+                        for hoja, df in data.items():
+                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
+                                mostrar_grafico_torta(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
+                if "grafico_barras:" in linea:
+                    partes = linea.replace("grafico_barras:", "").split("|")
+                    if len(partes) == 3:
+                        for hoja, df in data.items():
+                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
+                                mostrar_grafico_barras(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
+                if "tabla:" in linea:
+                    partes = linea.replace("tabla:", "").split("|")
+                    if len(partes) == 2:
+                        for hoja, df in data.items():
+                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
+                                mostrar_tabla(df, partes[0].strip(), partes[1].strip())
+
+        if st.button("📊 Análisis General Automático"):
+            contenido = ""
+            for name, df in data.items():
+                contenido += f"Hoja: {name}\n{df.head(50).to_string(index=False)}\n\n"
+
+            prompt = f"""
+Actúa como un controller financiero experto. Analiza de forma general los siguientes datos del taller de desabolladura y pintura.
+Entrega:
+1. Análisis financiero general
+2. Visualizaciones sugeridas (si aplica)
+3. Recomendaciones
+
+Usa solo los datos entregados.\n\n{contenido}
+""".strip()
+
+            respuesta = ask_gpt(prompt)
+            st.markdown(respuesta)
+            st.session_state.historial.append({"pregunta": "Análisis general", "respuesta": respuesta})
 
             for linea in respuesta.splitlines():
                 if "grafico_torta:" in linea:
