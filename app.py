@@ -5,7 +5,7 @@ import gspread
 import json
 from google.oauth2.service_account import Credentials
 from openai import OpenAI
-from analizador import analizar_datos_taller
+from io import BytesIO
 
 st.set_page_config(layout="wide", page_title="Controller Financiero IA")
 
@@ -28,10 +28,6 @@ if not st.session_state.authenticated:
     login()
     st.stop()
 
-# --- MEMORIA DE CONVERSACIÓN ---
-if "historial" not in st.session_state:
-    st.session_state.historial = []
-
 # --- FUNCIONES ---
 
 def load_excel(file):
@@ -47,14 +43,9 @@ def load_gsheet(json_keyfile, sheet_url):
 
 def ask_gpt(prompt):
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-    messages = [{"role": "system", "content": "Eres un controller financiero experto de un taller de desabolladura y pintura."}]
-    for h in st.session_state.historial:
-        messages.append({"role": "user", "content": h["pregunta"]})
-        messages.append({"role": "assistant", "content": h["respuesta"]})
-    messages.append({"role": "user", "content": prompt})
     response = client.chat.completions.create(
         model="gpt-4o",
-        messages=messages,
+        messages=[{"role": "user", "content": prompt}],
         temperature=0.3
     )
     return response.choices[0].message.content
@@ -106,43 +97,42 @@ with col3:
     if data:
         st.markdown("### 🤖 Consulta con IA")
         pregunta = st.text_area("Pregunta")
-
-        if st.button("📊 Análisis General Automático"):
-            analisis = analizar_datos_taller(data)
-            texto_analisis = json.dumps(analisis, indent=2, ensure_ascii=False)
-
-            prompt = f"""
-Contexto del negocio: Taller Fénix especializado en desabolladura y pintura de vehículos livianos y pesados.
-
-Actúa como un controller financiero senior. Evalúa los siguientes datos calculados del negocio, entregados por un motor de análisis real:
-
-{texto_analisis}
-
-Entrega:
-- Un análisis financiero profesional.
-- Visualizaciones sugeridas si corresponde.
-- Recomendaciones prácticas y accionables para la gerencia.
-- No inventes datos. Solo interpreta lo que se entrega.
-"""
-            respuesta = ask_gpt(prompt)
-            st.markdown(respuesta)
-            st.session_state.historial.append({"pregunta": "Análisis general", "respuesta": respuesta})
-
         if st.button("Responder") and pregunta:
             contenido = ""
             for name, df in data.items():
                 contenido += f"Hoja: {name}\n{df.head(50).to_string(index=False)}\n\n"
 
-            prompt = f"""
-Datos disponibles:\n\n{contenido}\n
-Pregunta del usuario: {pregunta}\n
-Tu rol es responder como controller financiero con análisis, visualización (si aplica) y recomendaciones.
-Si es útil, usa alguno de estos formatos para visualizar:
-- grafico_torta:col_categoria|col_valor|titulo
-- grafico_barras:col_categoria|col_valor|titulo
-- tabla:col_categoria|col_valor
-""".strip()
+            prompt = (
+                "Eres un controller financiero experto. Analiza los siguientes datos de un taller "
+                "de desabolladura y pintura de vehículos livianos y pesados:\n\n"
+                f"{contenido}\n"
+                f"Pregunta: {pregunta}\n\n"
+                "Responde con análisis detallado y genera instrucciones de visualización si es útil.\n"
+                "Si deseas un gráfico, usa el formato: grafico_torta:columna_categoria|columna_valor|titulo\n"
+                "Para gráfico de barras usa: grafico_barras:columna_categoria|columna_valor|titulo\n"
+                "Para una tabla usa: tabla:columna_categoria|columna_valor"
+            )
 
             respuesta = ask_gpt(prompt)
             st.markdown(respuesta)
-            st.session_state.historial.append({"pregunta": pregunta, "respuesta": respuesta})
+
+            # Procesar visualizaciones
+            for linea in respuesta.splitlines():
+                if "grafico_torta:" in linea:
+                    partes = linea.replace("grafico_torta:", "").split("|")
+                    if len(partes) == 3:
+                        for hoja, df in data.items():
+                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
+                                mostrar_grafico_torta(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
+                if "grafico_barras:" in linea:
+                    partes = linea.replace("grafico_barras:", "").split("|")
+                    if len(partes) == 3:
+                        for hoja, df in data.items():
+                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
+                                mostrar_grafico_barras(df, partes[0].strip(), partes[1].strip(), partes[2].strip())
+                if "tabla:" in linea:
+                    partes = linea.replace("tabla:", "").split("|")
+                    if len(partes) == 2:
+                        for hoja, df in data.items():
+                            if partes[0].strip() in df.columns and partes[1].strip() in df.columns:
+                                mostrar_tabla(df, partes[0].strip(), partes[1].strip())
